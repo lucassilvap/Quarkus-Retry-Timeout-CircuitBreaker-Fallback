@@ -1,0 +1,88 @@
+O que significa "cliente" nesse caso ? A separação da pasta no Micro-A
+No contexto do @RegisterRestClient, cliente significa:
+uma interface que REPRESENTA um outro microserviço que você quer chamar via HTTP.
+Ou seja:
+o ms-a não sabe como o ms-b funciona internamente
+o ms-a não usa HttpClient, RestTemplate, WebClient, nada disso
+ele só chama um método de uma interface
+e o Quarkus transforma essa chamada em uma requisição HTTP automática
+
+
+
+Quando você acessar:
+👉 http://localhost:8081/call-b
+(ms-a rodando na porta 8081)
+O ms-a vai:
+Usar o MsBClient
+Fazer uma requisição HTTP para o ms-b
+Retornar a resposta dele
+
+
+
+✅ 1. @Retry(maxRetries = 3, delay = 500)
+👉 Tenta novamente quando a chamada falha.
+Significa:
+Quando ms-b falha (erro 5xx, timeout, etc)
+ms-a tenta novamente até 3 vezes
+esperando 500 ms entre cada tentativa
+
+Linha do tempo:
+Tentativa	O que acontece
+1ª chamada	falhou
+espera 500 ms	—
+2ª chamada	falhou
+espera 500 ms	—
+3ª chamada	falhou
+→ ativa CircuitBreaker ou Fallback	
+Para que serve?
+
+Para cenários em que o serviço falha rapidamente, mas pode voltar.
+Exemplo: ms-b reiniciando, conexão instável etc.
+✅ 2. @Timeout(2000)
+👉 Limita quanto tempo a chamada pode demorar.
+Significa:
+A chamada para ms-b tem 2 segundos (2000 ms) para responder.
+Se passar disso → é cancelada e considerada falha.
+
+Para que serve?
+Evita deixar a requisição pendurada por minutos.
+Exemplo real:
+ms-b está lento
+sem timeout → ms-a trava
+com timeout → ms-a falha rápido e tenta novamente ou ativa fallback
+✅ 3. @CircuitBreaker(requestVolumeThreshold = 4, failureRatio = 0.5, delay = 3000)
+👉 Evita ficar chamando um serviço que está quebrado.
+
+É o mesmo conceito utilizado pela Netflix, Facebook, AWS, Google, etc.
+Significa:
+O CircuitBreaker observa 4 chamadas (requestVolumeThreshold = 4)
+Se 50% falharem (failureRatio = 0.5)
+Ele abre o circuito durante 3 segundos (delay = 3000)
+Quando o circuito está aberto:
+❌ ms-a NÃO chama ms-b
+✔ Ele ativa o fallback imediatamente
+Depois de 3s, ele testa uma chamada para ver se ms-b voltou.
+
+Funcionamento:
+Estado	Significado
+CLOSED	funcionando normal
+OPEN	ms-b está ruim → parar de chamar
+HALF-OPEN	testar se já voltou
+CLOSED novamente	voltou a normal
+Para que serve?
+
+Evita:
+desperdiçar requisições em um serviço morto
+derrubar ms-a junto com ms-b
+sobrecarregar ms-b enquanto ele tenta se recuperar
+É resiliência real.
+
+✅ 4. @Fallback(fallbackMethod = "fallbackCall")
+👉 Resposta alternativa caso tudo dê errado.
+
+O que significa?
+Se:
+ms-b falhar
+retry falhar
+timeout estourar
+circuit breaker abrir
